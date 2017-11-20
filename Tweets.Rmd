@@ -1,0 +1,346 @@
+---
+title: "Analysing Election Tweets"
+author: "Deepak Kumar G S"
+date: "November 19, 2017"
+output: 
+  html_document:
+    toc: true
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning=FALSE,message=FALSE)
+```
+
+#Introduction
+
+In this mini project,I intend to know about the tweet distribution of the two candidates for the presidential election 2016.I will be using wordcloud,TF-IDF,tokenisation procedures to mine and understand the scenario.
+
+I have used [this](http://tidytextmining.com/twitter.html) link for reference.
+
+
+#Loading libraries,dataset
+
+
+```{r}
+library(lubridate)
+library(ggplot2)
+library(dplyr)
+library(tidytext)
+library(tm)
+library(wordcloud)
+library(readr)
+library(tidyr)
+library(RColorBrewer)
+library(stringr)
+library(RSentiment)
+library(cowplot)
+library(ggthemes)
+library(knitr)
+library(kableExtra)
+tweets=read.csv("tweets.csv",header=TRUE,stringsAsFactors = FALSE)
+summary(tweets)
+```
+
+#  Distribution of Tweets
+
+```{r}
+tweets$time=ymd_hms(tweets$time)
+tweets$year=as.numeric(year(tweets$time))
+tweets$month=as.numeric(month(tweets$time))
+tweets$clock=as.numeric(hour(tweets$time))
+ggplot(tweets,aes(month,fill=handle))+geom_histogram(binwidth=1,aes(y=..count..))+facet_wrap(~handle,ncol=1,scales="free")+scale_x_continuous(limits=c(1,12),breaks=seq(1,12,1))
+
+
+```
+
+From the histogram,the tweet distribution for Hillary seems to be high during the month of July whereas for Trump more tweets have been published in the month of Jan-Feb.
+
+#What time of the day does the tweets appear to peak?
+
+We remove the retweeted text and analyse. 
+
+```{r}
+temp=tweets  %>%  filter(!(is_retweet=="True")) %>% select(handle,clock)
+temp=temp %>% group_by(handle,clock) %>% tally()
+ggplot(temp,aes(clock,n,fill=handle,color=handle))+geom_point()+geom_line()+theme(legend.position="bottom",plot.title=element_text(hjust=0.5))+labs(x="Time(Hrs)",y="Tweet Count",title="Tweet Distribution by Time")+scale_x_continuous(limits=c(0,23),breaks=seq(0,23,1))
+```
+
+# Tweet Distribution by Month
+
+```{r}
+temp=tweets %>% filter(!(is_retweet=="True")) %>% select(handle,month)
+temp=temp %>% group_by(handle,month) %>% tally()
+ggplot(temp,aes(month,n,fill=handle,color=handle))+geom_point()+geom_line()+theme_fivethirtyeight()+theme(legend.position="bottom",plot.title=element_text(hjust=0.5))+labs(x="Month",y="Tweet Count",title="Tweet Distribution by Month")+scale_x_continuous(limits=c(1,12),breaks=seq(1,12,1))
+```
+
+
+# Word Length:
+
+We examine the median word length distribution of the tweets by a barplot
+
+```{r,fig.width=10}
+tweets$len=str_count(tweets$text)
+temp=tweets %>% group_by(handle) %>% summarise(mediancount=median(len,na.rm=TRUE)) %>% ungroup() %>% mutate(account=reorder(handle,mediancount))
+ggplot(temp,aes(x = handle,y = mediancount,fill=handle)) +
+  geom_bar(stat='identity') +
+  geom_text(aes(label = paste0("(",mediancount,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Account', 
+       y = 'Count', 
+       title = 'Account and Count') +
+  coord_flip() + 
+  theme_bw()+theme(legend.position="none")
+
+```
+
+There is no difference in the median length of the tweets by Hillary or Trump.Both have a median count of 127 & 128 .
+
+
+# Retweet Analysis:
+
+## Whose twees have the candidates retweeted the most?
+
+```{r,fig.width=10}
+temp=tweets %>% select(handle,is_retweet,original_author) %>% filter(is_retweet=="True")  %>% group_by(handle,original_author) %>% tally()
+temp=temp[temp$n>5,]
+plot1=ggplot(temp[temp$handle=="HillaryClinton",],aes(reorder(original_author,n),n,fill=original_author))+geom_bar(stat="identity")+theme_fivethirtyeight()+theme(legend.position = "none",axis.text.x=element_text(angle=90),plot.title=element_text(hjust=0.5))+labs(x="",y="Count",title="Retweet Count-Hillary",subtitle="Accounts from which candidates have retweeted more than 5 times")
+
+plot2=ggplot(temp[temp$handle=="realDonaldTrump",],aes(reorder(original_author,n),n,fill=original_author))+geom_bar(stat="identity")+theme_fivethirtyeight()+theme(legend.position = "none",axis.text.x=element_text(angle=90),plot.title=element_text(hjust=0.5))+labs(x="",y="Count",title="Retweet Count-Trump",subtitle="Accounts from which candidates have retweeted more than 5 times")
+plot_grid(plot1,plot2,align="v")
+theme_set(theme_cowplot(font_size=12))
+```
+
+# Using RSentiment package:
+
+We use the RSentiment package to know about the sentiment of the tweets.
+
+## Hillary Tweets
+
+```{r}
+Hillary=subset(tweets,handle=="HillaryClinton") 
+Hillary=Hillary %>% filter(!(is_retweet=="True"))
+Trump=subset(tweets,handle=="realDonaldTrump")
+Trump=Trump %>% filter(!(is_retweet=="True"))
+clean=function(x){
+  x$text=str_replace_all(x$text,'[^[:alnum:]]',' ')
+  x$text=gsub("[[:digit:]]"," ",x$text)
+  x$text=gsub("[\t]{2,}"," ",x$text)
+  x$text=gsub("https.*"," ",x$text)
+  return(x)
+}
+head(Hillary$text)
+Hillary=as.data.frame(clean(Hillary))
+Trump=as.data.frame(clean(Trump))
+corpus=Corpus(VectorSource(list(Hillary$text)))
+corpus = tm_map(corpus, removePunctuation)
+corpus = tm_map(corpus, content_transformer(tolower))
+corpus = tm_map(corpus, removeNumbers) 
+corpus = tm_map(corpus, stripWhitespace)
+corpus = tm_map(corpus, removeWords, stopwords('english'))
+dtm_Hillary = DocumentTermMatrix(VCorpus(VectorSource(corpus[[1]]$content)))
+freq_Hillary <- colSums(as.matrix(dtm_Hillary))
+```
+
+We are using Rsentiment package which classifies the words into 6 categories:Positive,Negative,Neutral,Very Positive,Very Negative,Sarcastic .
+
+```{r,results=FALSE}
+sentiments_Hillary = calculate_sentiment(names(freq_Hillary))
+sentiments_Hillary = cbind(sentiments_Hillary, as.data.frame(freq_Hillary))
+```
+
+## Calculating  & Visualising Sentiments:
+
+```{r}
+positive=sentiments_Hillary[sentiments_Hillary$sentiment=="Positive",]
+positive=positive %>% arrange(desc(freq_Hillary))
+negative=sentiments_Hillary[sentiments_Hillary$sentiment=="Negative",]
+negative=negative %>% arrange(desc(freq_Hillary))
+neutral=sentiments_Hillary[sentiments_Hillary$sentiment=="Neutral",]
+neutral=neutral %>% arrange(desc(freq_Hillary))
+```
+
+##Positive Tweets
+
+```{r}
+wordcloud(positive$text,positive$freq_Hillary,scale=c(4,.5),min.freq=10,max.words = 100,random.order=FALSE,random.color=TRUE,rot.per=0.4,colors=brewer.pal(7,"Dark2"))
+```
+
+
+##Negative Tweets
+
+```{r}
+wordcloud(negative$text,negative$freq_Hillary,scale=c(4,.1),random.order=FALSE,random.color=TRUE,min.freq=20,colors=brewer.pal(7,"Dark2"))
+```
+
+##Neutral Tweets
+
+```{r}
+wordcloud(neutral$text,neutral$freq_Hillary,scale=c(4,.5),min.freq=60,random.order=FALSE,random.color=TRUE,colors=brewer.pal(7,"Dark2"))
+```
+
+
+
+
+# Trump Tweets
+
+Similarly we repeat the steps for Trump tweets and build a wordcloud.
+
+```{r}
+head(Trump$text)
+corpus=Corpus(VectorSource(list(Trump$text)))
+corpus = tm_map(corpus, removePunctuation)
+corpus = tm_map(corpus, content_transformer(tolower))
+corpus = tm_map(corpus, removeNumbers) 
+corpus = tm_map(corpus, stripWhitespace)
+corpus = tm_map(corpus, removeWords, stopwords('english'))
+dtm_Trump = DocumentTermMatrix(VCorpus(VectorSource(corpus[[1]]$content)))
+freq_Trump <- colSums(as.matrix(dtm_Trump))
+```
+
+```{r,results=FALSE}
+sentiments_Trump = calculate_sentiment(names(freq_Trump))
+sentiments_Trump = cbind(sentiments_Trump, as.data.frame(freq_Trump))
+```
+
+## Calculating  & Visualising Sentiments:
+
+```{r}
+positive=sentiments_Trump[sentiments_Trump$sentiment=="Positive",]
+positive=positive %>% arrange(desc(freq_Trump))
+negative=sentiments_Trump[sentiments_Trump$sentiment=="Negative",]
+negative=negative %>% arrange(desc(freq_Trump))
+neutral=sentiments_Trump[sentiments_Trump$sentiment=="Neutral",]
+neutral=neutral %>% arrange(desc(freq_Trump))
+```
+
+##Positive Tweets
+
+```{r}
+wordcloud(positive$text,positive$freq_Trump,random.order=FALSE,random.color=TRUE,rot.per=0.4,colors=brewer.pal(7,"Dark2"))
+```
+
+## Negative Tweets
+```{r}
+wordcloud(negative$text,negative$freq_Trump,random.order=FALSE,random.color=TRUE,colors=brewer.pal(7,"Dark2"))
+```
+
+##Neutral Tweets
+
+```{r}
+wordcloud(neutral$text,neutral$freq_Trump,random.order=FALSE,random.color=TRUE,colors=brewer.pal(7,"Dark2"))
+```
+
+
+#TF-IDF:
+
+We wish to know the most important words used in the tweet.For this we use * Term Frequency -Inverse Document Frequency matrix* .TF-IDF computes a weight which represents the importance of a term inside a document.It does this by comparing the frequency of usage inside an individual document as opposed to the entire data set (a collection of documents).
+
+The importance increases proportionally to the number of times a word appears in the individual document itself--this is called Term Frequency. However, if multiple documents contain the same word many times then you run into a problem. That's why TF-IDF also offsets this value by the frequency of the term in the entire document set, a value called Inverse Document Frequency.
+
+```{r}
+temp=subset(tweets,!(is.na(tweets$text)))
+temp=as.data.frame(clean(temp))
+temp=temp %>% unnest_tokens(word,text) %>% count(handle,word,sort=TRUE) %>% ungroup()
+total_words=temp %>% group_by(handle) %>% summarise(count=n())
+temp=left_join(temp,total_words)
+kable(head(temp,20),"html") %>% kable_styling(bootstrap_options="condensed",position="center")
+
+```
+
+
+Here *n* is the number of times the word is used in the book and count is the total number of terms in the tweet of the respective handle.We look at the distribution of n/total for each handle.This is exactly what term frequency is.
+
+```{r}
+ggplot(temp,aes(n/count,fill=handle))+geom_histogram(show.legend = FALSE)+facet_wrap(~handle,scales="free")+xlim(NA,0.0030)+labs(x="TF",y="Count",title="Term Frequency for Each Handle")
+```
+
+
+From the plot,it is understood that the curve is tailed towards right which indicates that these are most unique words and there are frequent words in the left indicated by the long bar which is assigned lower weights by TF formula.Both the handles show similar distribution.
+
+##Using the bind_tf_idf function:
+
+We calculated the TF manually above .Lets now do it with the help of the function *bind_tf_idf* from *tidytext* package.This requires word,handle,count as input.
+
+```{r}
+temp=temp %>% filter(!(is.na(handle))) %>% bind_tf_idf(word,handle,n)
+temp1=temp %>% select(-count) %>% arrange(desc(tf_idf)) %>% mutate(word=factor(word,levels=rev(unique(word))))
+temp1 %>% group_by(handle) %>% top_n(20) %>% ungroup() %>% ggplot(aes(word,tf_idf,fill=handle))+geom_col(show.legend=FALSE)+labs(x="",y="tf-idf",title="Top 20 Words")+facet_wrap(~handle,ncol=2,scales="free")+coord_flip()
+```
+
+##Wordcloud of Most Important Words:
+
+We plot *top 100* most important words for each handle.This is done by tf-idf.
+
+```{r}
+par(mfrow=c(1,2))
+temp1 %>% filter(handle=="HillaryClinton") %>% with(wordcloud(word,tf_idf,max.words=100,colors=brewer.pal(8,"Set1")))
+text(x=0.5,y=1,"Hillary's Tweets")
+temp1 %>% filter(handle=="realDonaldTrump") %>% with(wordcloud(word,tf_idf,max.words=100,colors=brewer.pal(8,"Dark2")))
+text(x=0.5,y=1,"Trump's Tweets")
+par(mfrow=c(1,1))
+```
+
+
+
+#Relationship between Words:
+
+##Bigrams
+
+A *bigram* is a collection of two words.We examine the most used bigrams in the tweets.
+
+```{r}
+temp=clean(tweets)
+temp=temp %>% select(handle,text) %>% unnest_tokens(bigram,text,token="ngrams",n=2)
+kable(head(temp,10),"html") %>% kable_styling(bootstrap_options="condensed",position="center")
+
+```
+
+A lot of the bigrams are uninteresting words like the,of,will etc..we remove these words and analyse.
+
+```{r,fig.width=8}
+tempseperated=temp %>% separate(bigram,c("word1","word2"),sep=" ")
+tempfiltered=tempseperated %>% filter(!(word1 %in% stop_words$word)) %>% filter(!(word2 %in% stop_words$word))
+temp=tempfiltered %>% unite(bigramwords,word1,word2,sep=" ") %>% group_by(bigramwords,handle) %>% tally()%>% ungroup() %>% arrange(desc(n))  %>% mutate(bigramwords=factor(bigramwords,levels=rev(unique(bigramwords))))
+temp %>% group_by(handle)  %>% top_n(20) %>% ggplot(aes(bigramwords,n,fill=handle))+geom_col(show.legend=FALSE)+labs(x="",y="Count")+facet_wrap(~handle,ncol=2,scales="free")+coord_flip()
+```
+
+## Using TF-IDF to know Most Important Bigrams:
+
+```{r,fig.width=8}
+temp =temp %>% bind_tf_idf(bigramwords,handle,n)
+temp1=temp %>% select(-n) %>% arrange(desc(tf_idf)) %>% mutate(bigramwords=factor(bigramwords,levels=rev(unique(bigramwords))))
+temp1 %>% group_by(handle) %>% top_n(20) %>% ungroup() %>% ggplot(aes(bigramwords,tf_idf,fill=handle))+geom_col(show.legend=FALSE)+labs(x="",y="tf-idf",title="Top 20 Bigrams")+facet_wrap(~handle,ncol=2,scales="free")+coord_flip()
+```
+
+
+# Hashtag Analysis:
+
+We extract hashtags from the tweets and analyse which hashtag has been repeatedly used by the candidates.
+
+
+```{r,fig.width=8,fig.height=8}
+temp=tweets %>% select(handle,text)
+temp$hashtag=as.character(str_extract_all(temp$text,"#\\S+"))
+temp$hashtag=ifelse(temp$hashtag=='character(0)',NA,temp$hashtag)
+temp=temp %>% group_by(handle,hashtag)  %>% drop_na(hashtag) %>% tally()
+hashhil=temp %>% filter(handle=="HillaryClinton") %>% arrange(desc(n))
+hashtrum=temp %>% filter(handle=="realDonaldTrump") %>% arrange(desc(n))
+p1=ggplot(head(hashhil,20),aes(reorder(hashtag,n),n,fill=hashtag))+geom_bar(stat="identity")+theme(legend.position="none",axis.text.x=element_text(angle=90,vjust=0.5),plot.title=element_text(hjust=0.5))+labs(x="Hashtag",y="Count",title="20 Popular Hashtags used by Hillary")+coord_flip()
+p2=ggplot(head(hashtrum,20),aes(reorder(hashtag,n),n,fill=hashtag))+geom_bar(stat="identity")+theme(legend.position="none",axis.text.x=element_text(angle=90,vjust=0.5),plot.title=element_text(hjust=0.5))+labs(x="Hashtag",y="Count",title="20 Popular Hashtags used by Trump")+coord_flip()
+plot_grid(p1,p2,ncol=1,align="v")
+```
+
+#Conclusion:
+
+* This project makes use of the *tidytext package* to uncover most interesting trends of the tweets by US Presidential Candidates.
+
+* Various concepts like TF-IDF,bigram,wordcloud have been used judiciously thereby understanding the power and use of these in text analytics.
+
+* There was a scope for analysing the trends of the tweets by month,time with bigram or most used words in the day which is unexplored in this kernel.This will be taken up in future analysis.
+
+**Thanks for reading**
+
