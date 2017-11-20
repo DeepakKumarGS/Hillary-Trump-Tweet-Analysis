@@ -66,6 +66,7 @@ We remove the retweeted text and analyse.
 temp=tweets  %>%  filter(!(is_retweet=="True")) %>% select(handle,clock)
 temp=temp %>% group_by(handle,clock) %>% tally()
 ggplot(temp,aes(clock,n,fill=handle,color=handle))+geom_point()+geom_line()+theme(legend.position="bottom",plot.title=element_text(hjust=0.5))+labs(x="Time(Hrs)",y="Tweet Count",title="Tweet Distribution by Time")+scale_x_continuous(limits=c(0,23),breaks=seq(0,23,1))
+#ggsave("tweettime.jpeg")
 ```
 
 # Tweet Distribution by Month
@@ -269,6 +270,7 @@ We calculated the TF manually above .Lets now do it with the help of the functio
 temp=temp %>% filter(!(is.na(handle))) %>% bind_tf_idf(word,handle,n)
 temp1=temp %>% select(-count) %>% arrange(desc(tf_idf)) %>% mutate(word=factor(word,levels=rev(unique(word))))
 temp1 %>% group_by(handle) %>% top_n(20) %>% ungroup() %>% ggplot(aes(word,tf_idf,fill=handle))+geom_col(show.legend=FALSE)+labs(x="",y="tf-idf",title="Top 20 Words")+facet_wrap(~handle,ncol=2,scales="free")+coord_flip()
+#ggsave("top20.jpeg")
 ```
 
 ##Wordcloud of Most Important Words:
