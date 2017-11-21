@@ -290,6 +290,8 @@ par(mfrow=c(1,1))
 
 #Relationship between Words:
 
+We now analyse the tweets by the relationship between the words.We take into account retweets also.
+
 ##Bigrams
 
 A *bigram* is a collection of two words.We examine the most used bigrams in the tweets.
@@ -318,6 +320,33 @@ temp1=temp %>% select(-n) %>% arrange(desc(tf_idf)) %>% mutate(bigramwords=facto
 temp1 %>% group_by(handle) %>% top_n(20) %>% ungroup() %>% ggplot(aes(bigramwords,tf_idf,fill=handle))+geom_col(show.legend=FALSE)+labs(x="",y="tf-idf",title="Top 20 Bigrams")+facet_wrap(~handle,ncol=2,scales="free")+coord_flip()
 ```
 
+##Trigram
+
+A *Trigram* is a collection of three words.We examine the most used trigrams in the tweets following the same steps and code as we did for bigram analysis.
+
+```{r}
+temp=clean(tweets)
+temp=temp %>% select(handle,text) %>% unnest_tokens(trigram,text,token="ngrams",n=3)
+kable(head(temp,10),"html") %>% kable_styling(bootstrap_options="condensed",position="center")
+
+```
+
+A lot of the trigrams are uninteresting words like the,of,will etc..we remove these words and analyse.
+
+```{r,fig.width=12}
+tempseperated=temp %>% separate(trigram,c("word1","word2","word3"),sep=" ")
+tempfiltered=tempseperated %>% filter(!(word1 %in% stop_words$word)) %>% filter(!(word2 %in% stop_words$word)) %>% filter(!(word3 %in% stop_words$word))
+temp=tempfiltered %>% unite(trigramwords,word1,word2,word3,sep=" ") %>% group_by(trigramwords,handle) %>% tally()%>% ungroup() %>% arrange(desc(n))  %>% mutate(trigramwords=factor(trigramwords,levels=rev(unique(trigramwords))))
+temp %>% group_by(handle)  %>% top_n(20) %>% ggplot(aes(trigramwords,n,fill=handle))+geom_col(show.legend=FALSE)+labs(x="",y="Count")+facet_wrap(~handle,ncol=2,scales="free")+coord_flip()
+```
+
+## Using TF-IDF to know Most Important Trigrams:
+
+```{r,fig.width=12}
+temp =temp %>% bind_tf_idf(trigramwords,handle,n)
+temp1=temp %>% select(-n) %>% arrange(desc(tf_idf)) %>% mutate(trigramwords=factor(trigramwords,levels=rev(unique(trigramwords))))
+temp1 %>% group_by(handle) %>% top_n(20) %>% ungroup() %>% ggplot(aes(trigramwords,tf_idf,fill=handle))+geom_col(show.legend=FALSE)+labs(x="",y="tf-idf",title="Top 20 Trigrams")+facet_wrap(~handle,ncol=2,scales="free")+coord_flip()
+```
 
 # Hashtag Analysis:
 
